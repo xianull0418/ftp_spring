@@ -1,0 +1,17 @@
+ftp:
+  server:
+    port: 21
+    data-port: 38017
+    root-dir: /ftp
+    users:
+      admin: admin123
+      user: user123
+      test: test123
+    file-mode: 666
+    dir-mode: 777
+
+logging:
+  level:
+    com.spring.ftp: DEBUG
+  pattern:
+    console: "%date{yyyy-MM-dd HH:mm:ss.SSS} %level [%thread] %logger{36} - %msg%n" 
