@@ -4,6 +4,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Profile;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.env.Environment;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import javax.annotation.PostConstruct;
 import java.io.*;
@@ -20,6 +22,9 @@ import java.util.HashMap;
 @Configuration
 @Profile("server")
 public class FtpServerConfig {
+
+    @Autowired
+    private Environment environment;
 
     @Value("${ftp.server.port:21}")
     private int port;
@@ -38,6 +43,18 @@ public class FtpServerConfig {
 
     @Value("${ftp.server.anonymous.home:/public}")
     private String anonymousHome;
+
+    @Value("#{${ftp.server.permissions:{}}}")
+    private Map<String, String> userPermissions;
+
+    @Value("#{${ftp.server.access:{}}}")
+    private Map<String, String> userAccess;
+
+    @Value("${ftp.server.permissions.default:r}")
+    private String defaultPermissions;
+
+    @Value("${ftp.server.access.default:/,/public}")
+    private String defaultAccess;
 
     private final ExecutorService executorService = Executors.newCachedThreadPool();
 
@@ -479,8 +496,9 @@ public class FtpServerConfig {
     }
 
     private void handleMkd(PrintWriter writer, String dirname, ClientSession session) {
-        if (!canWrite(session, dirname)) {
+        if (!canCreateDirectory(session, dirname)) {
             writer.println("550 Permission denied");
+            log.debug("创建目录权限不足: {} (用户: {})", dirname, session.username);
             return;
         }
 
@@ -558,29 +576,44 @@ public class FtpServerConfig {
                "/".equals(path);
     }
 
-    private boolean canRead(ClientSession session, String path) {
-        return canAccess(session, resolvePath(session.currentPath, path));
+    private boolean hasPermission(ClientSession session, String path, char permission) {
+        if (session.isAnonymous) {
+            String anonPerms = anonymousEnabled ? 
+                environment.getProperty("ftp.server.anonymous.permissions", "r") : "";
+            return anonPerms.indexOf(permission) >= 0 && path.startsWith(anonymousHome);
+        }
+
+        String userPerms = userPermissions.getOrDefault(session.username, defaultPermissions);
+        if (userPerms.indexOf(permission) < 0) {
+            return false;
+        }
+
+        String accessPaths = userAccess.getOrDefault(session.username, defaultAccess);
+        String[] allowedPaths = accessPaths.split(",");
+        String resolvedPath = resolvePath(session.currentPath, path);
+
+        for (String allowedPath : allowedPaths) {
+            if (resolvedPath.startsWith(allowedPath)) {
+                return true;
+            }
+        }
+        return false;
     }
 
-    private boolean canWrite(ClientSession session, String path) {
-        if (session.isAnonymous) {
-            // 根据配置决定匿名用户是否可以上传
-            return anonymousUpload && path.startsWith(anonymousHome);
-        }
-        
-        String resolvedPath = resolvePath(session.currentPath, path);
-        // 用户只能在自己的目录下写入
-        return resolvedPath.startsWith("/" + session.username);
+    public boolean canRead(ClientSession session, String path) {
+        return hasPermission(session, path, 'r');
     }
 
-    private boolean canDelete(ClientSession session, String path) {
-        if (session.isAnonymous) {
-            return false; // 匿名用户不能删除任何文件
-        }
-        
-        String resolvedPath = resolvePath(session.currentPath, path);
-        // 用户只能删除自己目录下的文件
-        return resolvedPath.startsWith("/" + session.username);
+    public boolean canWrite(ClientSession session, String path) {
+        return hasPermission(session, path, 'w');
+    }
+
+    public boolean canDelete(ClientSession session, String path) {
+        return hasPermission(session, path, 'd');
+    }
+
+    public boolean canCreateDirectory(ClientSession session, String path) {
+        return hasPermission(session, path, 'c');
     }
 
     private String resolvePath(String currentPath, String newPath) {
