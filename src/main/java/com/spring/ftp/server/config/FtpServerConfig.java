@@ -75,6 +75,13 @@ public class FtpServerConfig {
         // 初始化用户凭证
         initializeUsers();
         
+        // 打印权限配置信息
+        log.info("权限配置信息:");
+        userPermissions.forEach((user, perms) -> 
+            log.info("用户 {}: 权限={}", user, perms));
+        userAccess.forEach((user, paths) -> 
+            log.info("用户 {}: 访问路径={}", user, paths));
+        
         // 确保基本目录结构存在
         ensureDirectoryStructure();
 
@@ -242,10 +249,17 @@ public class FtpServerConfig {
 
                         case "STOR":
                             if (isLoggedIn && parts.length > 1) {
-                                if (canWrite(session, parts[1])) {
-                                    handleStore(writer, resolvePath(session.currentPath, parts[1]), session);
-                                } else {
-                                    writer.println("550 Permission denied");
+                                String filename = parts[1];
+                                try {
+                                    if (canWrite(session, filename)) {
+                                        handleStore(writer, filename, session);
+                                    } else {
+                                        log.warn("用户 {} 没有权限上传文件: {}", session.username, filename);
+                                        writer.println("550 Permission denied");
+                                    }
+                                } catch (Exception e) {
+                                    log.error("处理文件上传时发生错误", e);
+                                    writer.println("550 Upload failed");
                                 }
                             } else {
                                 writer.println("530 Not logged in");
@@ -577,26 +591,63 @@ public class FtpServerConfig {
     }
 
     private boolean hasPermission(ClientSession session, String path, char permission) {
+        // 添加空值检查
+        if (session == null || path == null) {
+            log.error("权限检查失败：session 或 path 为空");
+            return false;
+        }
+
+        // 检查用户名是否为空
+        if (session.username == null) {
+            log.error("权限检查失败：用户名为空");
+            return false;
+        }
+
         if (session.isAnonymous) {
             String anonPerms = anonymousEnabled ? 
                 environment.getProperty("ftp.server.anonymous.permissions", "r") : "";
             return anonPerms.indexOf(permission) >= 0 && path.startsWith(anonymousHome);
         }
 
+        // 添加空值检查
+        if (userPermissions == null) {
+            log.warn("用户权限配置为空，使用默认权限");
+            userPermissions = new HashMap<>();
+        }
+
+        if (userAccess == null) {
+            log.warn("用户访问路径配置为空，使用默认访问路径");
+            userAccess = new HashMap<>();
+        }
+
         String userPerms = userPermissions.getOrDefault(session.username, defaultPermissions);
+        if (userPerms == null) {
+            log.warn("用户 {} 没有权限配置，使用默认权限: {}", session.username, defaultPermissions);
+            userPerms = defaultPermissions;
+        }
+
         if (userPerms.indexOf(permission) < 0) {
+            log.debug("用户 {} 没有 {} 权限", session.username, permission);
             return false;
         }
 
         String accessPaths = userAccess.getOrDefault(session.username, defaultAccess);
+        if (accessPaths == null) {
+            log.warn("用户 {} 没有访问路径配置，使用默认路径: {}", session.username, defaultAccess);
+            accessPaths = defaultAccess;
+        }
+
         String[] allowedPaths = accessPaths.split(",");
         String resolvedPath = resolvePath(session.currentPath, path);
 
         for (String allowedPath : allowedPaths) {
             if (resolvedPath.startsWith(allowedPath)) {
+                log.debug("用户 {} 有权限访问路径: {}", session.username, resolvedPath);
                 return true;
             }
         }
+
+        log.debug("用户 {} 没有权限访问路径: {}", session.username, resolvedPath);
         return false;
     }
 

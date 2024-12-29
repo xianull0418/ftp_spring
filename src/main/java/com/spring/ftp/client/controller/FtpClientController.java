@@ -7,6 +7,7 @@ import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
 import javax.annotation.PreDestroy;
 import javax.servlet.http.HttpServletResponse;
@@ -79,14 +80,14 @@ public class FtpClientController {
     @PostMapping("/upload")
     public String uploadFile(@RequestParam("file") MultipartFile file,
                             @RequestParam("path") String path,
-                            Model model,
+                            RedirectAttributes redirectAttributes,
                             HttpSession session) {
         if (session.getAttribute("connected") == null) {
             return "redirect:/ftp/login";
         }
 
         if (file.isEmpty()) {
-            model.addAttribute("error", "请选择要上传的文件");
+            redirectAttributes.addFlashAttribute("error", "请选择要上传的文件");
             return "redirect:/ftp/files?path=" + path;
         }
 
@@ -98,15 +99,17 @@ public class FtpClientController {
             try (InputStream is = file.getInputStream()) {
                 boolean uploaded = ftpClientService.uploadFile(filename, is);
                 if (!uploaded) {
-                    log.error("文件上传失败: {}", filename);
-                    model.addAttribute("error", "文件上传失败，可能是权限不足");
+                    redirectAttributes.addFlashAttribute("error", 
+                        "文件上传失败：权限不足。请确认您有权限访问该目录并具有写入权限。");
+                    log.error("文件上传失败(权限不足): {}", filename);
                 } else {
+                    redirectAttributes.addFlashAttribute("success", "文件上传成功");
                     log.info("文件上传成功: {}", filename);
                 }
             }
         } catch (IOException e) {
             log.error("文件上传失败", e);
-            model.addAttribute("error", "文件上传失败: " + e.getMessage());
+            redirectAttributes.addFlashAttribute("error", "文件上传失败: " + e.getMessage());
         }
 
         return "redirect:/ftp/files?path=" + path;

@@ -144,6 +144,24 @@
             background-color: #c82333;
             color: white;
         }
+        .alert {
+            padding: 15px;
+            margin-bottom: 20px;
+            border: 1px solid transparent;
+            border-radius: 4px;
+        }
+
+        .alert-danger {
+            color: #721c24;
+            background-color: #f8d7da;
+            border-color: #f5c6cb;
+        }
+
+        .alert-success {
+            color: #155724;
+            background-color: #d4edda;
+            border-color: #c3e6cb;
+        }
     </style>
 </head>
 <body>
@@ -171,10 +189,17 @@
             </th:block>
         </div>
         
-        <div th:if="${error}" class="error" th:text="${error}"></div>
+        <div th:if="${error}" class="alert alert-danger" role="alert">
+            <span th:text="${error}"></span>
+        </div>
         
+        <div th:if="${success}" class="alert alert-success" role="alert">
+            <span th:text="${success}"></span>
+        </div>
+
         <div class="upload-form">
-            <form th:action="@{/ftp/upload}" method="post" enctype="multipart/form-data" onsubmit="return validateUpload()">
+            <form th:action="@{/ftp/upload}" method="post" enctype="multipart/form-data" 
+                  onsubmit="return validateUpload()">
                 <input type="hidden" name="path" th:value="${currentPath}"/>
                 <input type="file" name="file" required id="fileInput"/>
                 <button type="submit" id="uploadButton">上传文件</button>
